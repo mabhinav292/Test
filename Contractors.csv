@@ -1,0 +1,35 @@
+firstName,lastName,employeeId,managerId,startDate,endDate,country,department,costcenter,mobileNumber,userType
+Thomas,Bartinez,1a2a3a4c,1a2a3a,28-09-2021,01-12-2022,United States,Information Technology,"R03e, L07e",123456789,Contractor
+Dorothy,Robinson,1a2a3a4d,1a2a3a4c,29-09-2021,01-12-2022,United States,Information Technology,"R03e, L07e",123456789,Trainee
+Nancy,Lee,1a2a3b4c,1a2a3a4c,28-09-2021,31-12-2021,United States,Information Technology,"R03e, L07e",123456789,Contractor
+Paul,Walker,1a2a3b4d,1a2a3c4c,27-09-2021,01-12-2022,United States,Information Technology,"R03e, L07e",123456789,Contractor
+Donald,Hernandez,1a2a3c4c,1a2a3a4c,30-01-2021,02-02-2022,United States,Engineering,"R03e, L07e",123456789,Contractor
+Helen,King,1a2a3c4d,1a2a3d4c,28-09-2021,31-12-2021,United States,Engineering,"R03e, L07e",123456789,Trainee
+Donna,Scott,1a2a3d4c,1a2a3a4d,01-10-2021,01-12-2022,United States,Engineering,"R03e, L07e",123456789,Contractor
+Steven,Green,1a2a3d4d,1a2a3a4d,02-06-2021,31-12-2021,United States,Engineering,"R03e, L07e",123456789,Contractor
+Brian,Nelson,1a2b3a4c,1a2a3a4d,27-09-2021,30-11-2021,United States,Human Resources,"R03e, L09e",123456789,Contractor
+Sharon,Carter,1a2b3a4d,1a2a3a4d,28-09-2021,31-12-2021,United States,Human Resources,"R03e, L09e",123456789,Trainee
+Laura,Turner,1a2b3b4c,1a2a3a4d,03-07-2021,01-12-2022,United States,Human Resources,"R03e, L09e",123456789,Contractor
+Kevin,Phillips,1a2b3b4d,1a2a3b4c,27-09-2021,02-02-2022,United States,Human Resources,"R03e, L09e",123456789,Contractor
+Matthew,Edwards,1a2b3c4c,1a2a3b4c,04-08-2021,31-12-2021,United States,Inventory,"R03e, L09e",123456789,Contractor
+Deborah,Collins,1a2b3c4d,1a2a3b4c,05-07-2021,31-12-2021,United States,Inventory,"R03e, L09e",123456789,Trainee
+Shirley,Rogers,1a2b3d4c,1a2a3b4c,28-09-2021,29-10-2021,United States,Inventory,"R03e, L09e",123456789,Contractor
+Jose,Reed,1a2b3d4d,1a2a3b4c,27-09-2021,01-12-2022,United States,Inventory,"R03e, L09e",123456789,Contractor
+Jeffrey,Murphy,1a2c3a4c,1a2a3b4d,06-06-2021,31-12-2021,United States,Accounting,"R03e, L08e",123456789,Contractor
+Melissa,Bailey,1a2c3a4d,1a2a3b4d,07-05-2021,02-02-2022,United States,Accounting,"R03e, L08e",123456789,Trainee
+Amy,Cox,1a2c3b4c,1a2a3b4d,08-04-2021,31-12-2021,United States,Accounting,"R03e, L08e",123456789,Contractor
+Eric,Howard,1a2c3b4d,1a2a3b4d,07-03-2021,30-11-2021,United States,Accounting,"R03e, L08e",123456789,Contractor
+Andrew,Gray,1a2c3c4c,1a2a3b4d,28-09-2021,03-03-2022,United States,Finance,"R03e, L08e",123456789,Contractor
+Virginia,Ramirez,1a2c3c4d,1a2a3c4c,08-04-2021,01-12-2022,United States,Finance,"R03e, L08e",123456789,Trainee
+Pamela,Kelly,1a2c3d4c,1a2a3c4c,27-09-2021,31-12-2021,United States,Finance,"R03e, L08e",123456789,Contractor
+Joshua,Sanders,1a2c3d4d,1a2a3c4c,09-01-2021,27-06-2022,United States,Finance,"R03e, L08e",123456789,Contractor
+Arthur,Bryant,1b2a3a4c,1a2a3c4c,29-09-2021,02-02-2022,Germany,Information Technology,"R01e, L01e",123456789,Contractor
+Ann,Alexander,1b2a3a4d,1a2a3c4c,30-01-2021,31-12-2021,Germany,Information Technology,"R01e, L01e",123456789,Trainee
+Laxman,Yash,1b2a3b4c,1b2a3b4d,09-01-2021,30-11-2021,Germany,Information Technology,"R01e, L01e",123456789,Contractor
+Lx,mn,1b2a3b4d,1b2a3b4c,28-09-2021,03-03-2022,Germany,Information Technology,"R01e, L01e",123456789,Contractor
+Jack,Sullivan,1b2a3c4c,1b2a3b4c,29-09-2021,01-12-2022,Germany,Engineering,"R01e, L01e",123456789,Contractor
+Jack,Sullivan,1b2a3c4d,1b2a3b4c,09-01-2021,31-12-2021,Germany,Engineering,"R01e, L01e",123456789,Trainee
+Laxman,Yash,1b2a3b4n,1b2a3b4c,09-01-2021,30-11-2021,Germany,Information Technology,"R01e, L01e",123456789,Contractor
+Nikita,Deshmukh,1b2a3b4m,1b2a3b4c,09-01-2021,30-11-2021,Germany,Information Technology,"R01e, L01e",123456789,Contractor
+Nikita,Deshmukh,1b2a3b4m,1b2a3b4c,09-01-2021,30-11-2021,Germany,Information Technology,"R01e, L01e",123456789,Contractor
+Abhinav,Mishra,1v2x3y4z,1b2a3b4m,09-01-2021,30-11-2021,India,IT,"R01e, L01e",123456789,Contractor
