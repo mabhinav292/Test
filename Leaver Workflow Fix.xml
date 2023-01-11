@@ -1,0 +1,1844 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE Workflow PUBLIC "sailpoint.dtd" "sailpoint.dtd">
+<Workflow created="" explicitTransitions="true" id="" libraries="Identity" modified="" name="Aptiv-WorkFlow-OffBoarding" type="IdentityLifecycle">
+  <Variable input="true" name="event" transient="true">
+    <Description>
+      The IdentityChangeEvent.  It can be used to build
+      the provisioning plan, but does not need to be
+      persisted with the case, so marked as transient.
+    </Description>
+  </Variable>
+  <Variable initializer="string:delphi.workflow.AccountAndGroupDeletion" name="logName"/>
+  <Variable input="true" name="identityName">
+    <Description>The name of the identity.</Description>
+  </Variable>
+  <Variable input="true" name="trigger">
+    <Description>The IdentityTrigger</Description>
+  </Variable>
+  <Variable initializer="script:(identityDisplayName != void) ? identityDisplayName : resolveDisplayName(identityName)" input="true" name="identityDisplayName">
+    <Description>The displayName of the identity being updated.
+      Query for this using a projection query and fall back to the name.</Description>
+  </Variable>
+  <Variable initializer="string:AccountsRequest" input="true" name="flow">
+    <Description>What type of LCM flow is this</Description>
+  </Variable>
+  <Variable name="plan">
+    <Description>The provisioning plan which is built during the workflow.</Description>
+  </Variable>
+  <Variable initializer="string:LCM" input="true" name="source">
+    <Description>String version of sailpoint.object.Source to indicate
+      where the request originated. Defaults to LCM.</Description>
+  </Variable>
+  <Variable initializer="string:true" name="trace">
+    <Description>Used for debugging this workflow and when set to true trace will be sent to stdout.</Description>
+  </Variable>
+  <Variable name="project">
+    <Description>ProvisioningProject which is just a compiled version of the ProvisioningPlan.</Description>
+  </Variable>
+  <Variable initializer="string:Create" name="doAction">
+    <Description>This will check the user ukhl ad access and provide the action need to be performed</Description>
+  </Variable>
+  <Variable editable="true" initializer="false" name="optimisticProvisioning">
+    <Description>
+      Set to true to enable optimistic provisioning.  This will cause
+      changes to the entitlements compiled from role assignments to be
+      applied immediately to the identity cube rather than waiting
+      for the next refresh/reaggregation after the provisioning system
+      completes the request.
+    </Description>
+  </Variable>
+  <Variable editable="true" initializer="true" name="foregroundProvisioning">
+    <Description>
+      Normally provisioning is done in a step that uses the "background"
+      option to force the workflow to be suspend and be resumed in a
+      background task thread.  This prevents the browser session from
+      hanging since provision can sometimes take a long time.  For demos
+      and testing it can be better to do this in the foreground so that
+      provisioning will have been performed when control is returned to the
+      user.  This prevents having to run the Perform Maintenance task to
+      see the results of the request.
+    </Description>
+  </Variable>
+  <Variable input="true" name="batchRequestItemId">
+    <Description>
+      Used by the batch interface to record back individual request item status. The specific item id for the individual request in the batch file.
+    </Description>
+  </Variable>
+  <Variable editable="true" name="doRefresh">
+    <Description>
+      Set to true to cause an identity refresh after the changes in the plan
+      have been provisioned.  This is normally off, you might want this on
+      if you want modification of identity or link attributes to result in
+      an immediate re-evaluation of assigned and detected roles.
+    </Description>
+  </Variable>
+  <Variable initializer="user,requester" input="true" name="notificationScheme">
+    <Description>
+      A string that specifies who should be notified when the request has been complete.
+      The value can be null or a csv of one or more of the following options.
+
+      none or null
+      disable notifications
+
+      user
+      Identity that is being update will be notified.
+
+      manager
+      The manager of the Identity that is being updated will be notified.
+
+      requester
+      The person that has requested the update will be notified.
+    </Description>
+  </Variable>
+  <Variable initializer="LCM User Notification" input="true" name="userEmailTemplate">
+    <Description>
+      The email template to use for user notification.
+    </Description>
+  </Variable>
+  <Variable initializer="LCM Requester Notification" input="true" name="requesterEmailTemplate">
+    <Description>
+      The email template to use for requester notification.
+    </Description>
+  </Variable>
+  <Variable initializer="LCM Manager Notification" input="true" name="managerEmailTemplate">
+    <Description>
+      The email template to use for manager notification.
+    </Description>
+  </Variable>
+  <Variable input="true" name="securityOfficerEmailTemplate">
+    <Description>
+      The email template to use for security officer notification.
+    </Description>
+  </Variable>
+  <Variable initializer="parallelPoll" input="true" name="approvalMode">
+    <Description>
+      A string that specifies how to handle approval items.
+
+      serialPoll
+      Item is passed to each approver one at a time in specified order.
+      Data is collected on approvals and rejections and all approvals
+      will be processed; however, a single rejection will cause rejection of the item.
+
+      parallelPoll
+      Item is sent to all named approvers concurrently.
+      Data is collected on approvals and rejections and all approvals
+      will be processed; however, a single rejection will cause rejection of the item.
+
+      any
+      Item is sent to all named approvers concurrently.
+      The first approver to respond makes the decision for the group.
+    </Description>
+  </Variable>
+  <Variable initializer="LCM Identity Update Approval" input="true" name="approvalEmailTemplate">
+    <Description>
+      The email template to use for approval notifications.
+    </Description>
+  </Variable>
+  <Variable initializer="Normal" input="true" name="workItemPriority">
+    <Description>
+      The String version of a WorkItem.Priority. This variable is
+      used to set the priority on all of the workitems generated
+      as part of this workflow and also set on the IdentityRequest
+      object.
+    </Description>
+  </Variable>
+  <Variable input="true" name="securityOfficerName">
+    <Description>
+      The name of the identity that will be sent approvals
+      during security officer approvals.
+    </Description>
+  </Variable>
+  <Variable initializer="spadmin" input="true" name="fallbackApprover">
+    <Description>
+      A String that specifies the name of the Identity that will
+      be assigned any approvals where the owner of the approver
+      can't be resolved. Example if the scheme is "owner" and the
+      application doesn't specify and owner.
+    </Description>
+  </Variable>
+  <Variable initializer="continue" input="true" name="policyScheme">
+    <Description>
+      A String that specifies how policy checks effect the overall
+      process.
+
+      none - disabled policy checking
+
+      continue -  continue if policy violations are found
+
+      interactive -  allow requester to remove request items which are causing violations
+
+      fail -  this option will cause the workflow to terminate immediately if any policy violations are found.
+      Note that the requester will not be notified that the workflow has terminated.
+    </Description>
+  </Variable>
+  <Variable initializer="false" input="true" name="enableRetryRequest">
+    <Description>
+      When set to true it will disable the workflow retry loop and let the
+      Provision step launch requests to handle the retries.  Enabling
+      this flag will enable some older functionality.
+    </Description>
+  </Variable>
+  <Variable input="true" name="policiesToCheck">
+    <Description>
+      A List of policies that should be checked. If this list is
+      empty all violations will be checked. Used in combination
+      with policyScheme.
+    </Description>
+  </Variable>
+  <Variable name="approvalSet">
+    <Description>
+      This attributes is set during the "Build Approval Set" step,
+      which builds this list by going through the ProvisioningPlan
+      to build the line items that need to be approved,
+
+      This variable includes all ApprovalItems that are part of
+      the request process and is updated during the AfterScript
+      of the approval process by assimilating the decisions
+      and comments from the Approvals copy of the ApprovalItem.
+    </Description>
+  </Variable>
+  <Variable initializer="true" name="allowRequestsWithViolations">
+    <Description>
+      If this variable is set to true, requesters will be able to proceed past
+      the Policy Violation Review form without taking any action on
+      policy violations resulting from the request. This is only relevant
+      if policyScheme=interactive.
+    </Description>
+  </Variable>
+  <Variable initializer="true" name="requireViolationReviewComments">
+    <Description>
+      If true, requesters will be required to enter in comments if they
+      proceed with a request that will result in policy violations. This
+      is only relevant if policyScheme=interactive.
+    </Description>
+  </Variable>
+  <Variable name="project">
+    <Description>
+      ProvisioningProject which is just a compiled version of the ProvisioningPlan.
+    </Description>
+  </Variable>
+  <Variable name="policyViolations">
+    <Description>
+      List of policy violations that were found during our initial policy scan.
+      This list is passed into each work item so the approvers can see
+      pending violations.
+    </Description>
+  </Variable>
+  <Variable name="identityRequestId" output="true">
+    <Description>
+      The sequence id of the Identity request object which is stored in
+      the name field of the identity request and auto-incremented.
+    </Description>
+  </Variable>
+  <Variable name="violationReviewDecision">
+    <Description>
+      Decision made by the user in the Policy Violation Review step.
+      This may be one of three choices:
+
+      -ignore:   User is ignoring the violations and letting the request continue. If
+      requireViolationReviewComments=true the user will be required to enter
+      comments indicating why they are allowing the violations.
+
+      -remediate: Indicates that the user removed the request items that were causing the
+      violations
+
+      -cancel:   Indicates that the user decided to abandon the request, terminating the workflow.
+
+    </Description>
+  </Variable>
+  <Variable name="workItemComments">
+    <Description>
+      Global comments accumulated during the workflow which should be shared
+      with other approvals. When a new approval is created, the comments in this
+      list will be added to the work item.
+    </Description>
+  </Variable>
+  <Variable input="true" name="ticketManagementApplication">
+    <Description>
+      Name of the application that can handle ticket requests.
+      When non-null the Manage Ticket Steps will be visited to open
+      tickets during the workflow lifecycle.
+    </Description>
+  </Variable>
+  <Variable name="ticketId">
+    <Description>
+      The id of the ticket that is generated by the ticketingManagementApplication.
+      This is typically generated on the "open" call, and then used in subsequent
+      calls.  It is also stored on the IdentityRequest object under the
+      externalTicketId variable.
+    </Description>
+  </Variable>
+  <Variable input="true" name="managerElectronicSignature">
+    <Description>
+      The name of the electronic signature object that should be used when workitems
+      are completed by a manager.
+    </Description>
+  </Variable>
+  <Variable input="true" name="ownerElectronicSignature">
+    <Description>
+      The name of the electronic signature object that should be used when workitems
+      are completed by object owners.
+    </Description>
+  </Variable>
+  <Variable input="true" name="securityOfficerElectronicSignature">
+    <Description>
+      The name of the electronic signature object that should be used when workitems
+      are completed by the security officer.
+    </Description>
+  </Variable>
+  <Description>Process a new employee.</Description>
+  <RuleLibraries>
+    <Reference class="sailpoint.object.Rule" id="8a40a8766317522b0163255dfd940125" name="Aptiv-RulesLibrary-Common"/>
+  </RuleLibraries>
+  <Step icon="Start" name="Start" posX="28" posY="10">
+    <Script>
+      <Source>
+        import sailpoint.object.Identity;
+        import sailpoint.object.AuditEvent;
+        import sailpoint.server.Auditor;
+        import sailpoint.api.IdentityService;
+        import sailpoint.object.Application;
+		
+
+		try{
+        Identity identityObject = context.getObjectByName(Identity.class, identityName);
+		Application applicationObject=context.getObjectByName(Application.class, "Aptiv-Active Directory");
+		
+		if(identityObject!=null &amp;&amp; applicationObject!=null){
+			IdentityService identityService = new IdentityService(context);
+			List adLinks=identityService.getLinks(identityObject,applicationObject);
+			if(adLinks!=null && adLinks.size()>0 && !adLinks.isEmpty()){
+				AuditEvent auditEvent = new AuditEvent();
+				auditEvent.setTarget(identityName);
+				auditEvent.setAccountName(identityName);
+				auditEvent.setAction("User termination with AD Account");
+				auditEvent.setSource("Aptiv-WorkFlow-OffBoarding");
+				auditEvent.setString1("Thereshold Audit Check for terminated Users with AD Account");
+				Auditor.log(auditEvent);
+				context.saveObject(auditEvent);
+				context.commitTransaction();
+			}	
+		}
+        }catch(Exception e){
+			System.out.println("Error :"+e);
+        }
+      </Source>
+    </Script>
+    <Transition to="Send Leaver Workitem Mail">
+      <Script>
+        <Source>
+		import sailpoint.object.Identity;
+        import sailpoint.object.AuditEvent;
+        import sailpoint.server.Auditor;
+        import sailpoint.api.IdentityService;
+        import sailpoint.object.Application;
+		import sailpoint.object.QueryOptions;
+		import sailpoint.object.Filter;
+		import java.util.Date;
+		
+
+		try{
+			Identity identityObject = context.getObjectByName(Identity.class, identityName);
+			Application applicationObject=context.getObjectByName(Application.class, "Aptiv-Active Directory");
+			
+			if(identityObject!=null &amp;&amp; applicationObject!=null){
+				int count=0;
+				IdentityService identityService = new IdentityService(context);
+				List adLinks=identityService.getLinks(identityObject,applicationObject);
+				
+				if(adLinks!=null &amp;&amp; adLinks.size()>0) {
+					QueryOptions qo= new QueryOptions();
+					Filter f1= Filter.eq("source", "Aptiv-WorkFlow-OffBoarding");
+					Filter f2 = Filter.eq("string1","Thereshold Audit Check for terminated Users with AD Account");
+					qo.add(Filter.and(f1,f2));
+					qo.addOrdering("created",false);
+					
+					List auditEventList=context.getObjects(AuditEvent.class,qo);
+					
+					if(auditEventList!=null &amp;&amp; auditEventList.size()>0){
+						for(AuditEvent auditEvent : auditEventList){
+							Date eventDate=	auditEvent.getCreated();
+							if(Util.getDaysDifference(eventDate,new Date()) == 0){
+								count++;
+							}
+							if(count>=30) break;
+						}
+					}
+					if(count>=30) return true;
+					else return false;
+				}
+			}
+		}catch(Exception e){
+				log.error("Thrown Exception :" + e);
+		}
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="ServiceNow Profile Update"/>
+  </Step>
+  <Step action="call:sendEmail" icon="Email" name="Send Leaver Workitem Mail" posX="810">
+    <Arg name="template" value="Aptiv-EmailTemplate-LeaverWorkitem"/>
+    <Arg name="to" value="iam.support@aptiv.com"/>
+    <Arg name="identityObj">
+      <Script>
+        <Source>
+          import sailpoint.object.Identity;
+
+          Identity identityObject = context.getObjectByName(Identity.class,identityName);
+          return identityObject;
+        </Source>
+      </Script>
+    </Arg>
+    <Arg name="emailSubject" value="Leaver Workitem generated!"/>
+    <Transition to="Create WorkItem for Leaver"/>
+  </Step>
+  <Step name="Create WorkItem for Leaver" posX="58" posY="10">
+    <Approval name="Workitem generated as Leaver Threshold has been reached" owner="rule:Aptiv_LeaverWorkItemOwnerRule" send="identityName, trace">
+      <Form>
+        <Attributes>
+          <Map>
+            <entry key="pageTitle" value="Workitem generated as Leaver Threshold has been reached"/>
+            <entry key="title" value="Workitem generated as Leaver Threshold has been reached"/>
+          </Map>
+        </Attributes>
+        <Section>
+          <Button action="next" label="Approve"/>
+          <Button action="back" label="Reject"/>
+          <Field displayName="User Name" dynamic="true" filterString="" name="username" readOnly="true" required="true" type="string">
+            <Script>
+              <Source>
+                return identityName;
+              </Source>
+            </Script>
+          </Field>
+          <Field displayName="NetID" dynamic="true" filterString="" name="netid" readOnly="true" required="true" type="string">
+            <Script>
+              <Source>
+                import sailpoint.object.Identity;
+
+                String netID= null;
+                Identity idenObj = context.getObjectByName(Identity.class, identityName);
+                netID = idenObj.getAttribute("netid");
+                return netID;
+              </Source>
+            </Script>
+          </Field>
+        </Section>
+      </Form>
+    </Approval>
+    <Transition to="ServiceNow Profile Update" when="script:approved"/>
+    <Transition to="completed"/>
+  </Step>
+  <Step name="ServiceNow Profile Update" posX="835" posY="10">
+    <Script>
+      <Source>
+
+        import sailpoint.object.ProvisioningPlan;
+        import sailpoint.object.Identity;
+        import sailpoint.object.ProvisioningPlan.AccountRequest;
+        import sailpoint.object.ProvisioningPlan.AttributeRequest;
+        import sailpoint.object.Link;
+        import sailpoint.object.Application;
+        import java.util.ArrayList;
+        import java.util.List;
+        import sailpoint.tools.Util;
+        import sailpoint.api.Provisioner;
+        import sailpoint.api.IdentityService;			
+
+
+	try{
+			Identity identityObject = context.getObjectByName(Identity.class, identityName);
+			Application applicationObject=context.getObjectByName(Application.class, "Aptiv ServiceNow");
+			
+			if(identityObject!=null &amp;&amp; applicationObject!=null){
+				int count=0;
+				IdentityService identityService = new IdentityService(context);
+				List snowLinks=identityService.getLinks(identityObject,applicationObject);
+				if(snowLinks!=null &amp;&amp; snowLinks.size()>0){
+					for(Link snowLink:snowLinks){
+						String userSysId = snowLink.getAttribute("sys_id");
+						String createdBy = snowLink.getAttribute("sys_created_by");
+						String sourceValue = snowLink.getAttribute("source");
+						
+						if((Util.nullSafeCaseInsensitiveEq(createdBy, "Sid_Sailpoint_Snow"))){
+							ProvisioningPlan plan = new ProvisioningPlan();
+							List accountRequests = new ArrayList();
+							AccountRequest accountRequest = new AccountRequest();
+							accountRequest.setApplication(snowLink.getApplicationName());
+							accountRequest.setOperation(AccountRequest.Operation.Modify);
+							accountRequest.add(new AttributeRequest("source",ProvisioningPlan.Operation.Set,"Offboarded"));
+							accountRequest.setNativeIdentity(userSysId);
+							accountRequests.add(accountRequest);
+							plan.setAccountRequests(accountRequests);
+							plan.setIdentity(identityObject);
+							Provisioner provisioner = new Provisioner(context);    
+							provisioner.setNoLocking(true);
+							provisioner.execute(plan);
+						}else if(!(Util.nullSafeCaseInsensitiveEq(createdBy, "Sid_Sailpoint_Snow"))){
+							ProvisioningPlan plan = new ProvisioningPlan();
+							List accountRequests = new ArrayList();
+							AccountRequest accountRequest = new AccountRequest();
+							accountRequest.setApplication(snowLink.getApplicationName());
+							accountRequest.setOperation(AccountRequest.Operation.Modify);
+							accountRequest.add(new AttributeRequest("offboarded",ProvisioningPlan.Operation.Set,"true"));
+							account.setNativeIdentity(userSysId);
+							accountRequests.add(accountRequest);
+							plan.setAccountRequests(accountRequests);
+							plan.setIdentity(identityObject);
+							Provisioner provisioner = new Provisioner(context);    
+							provisioner.setNoLocking(true);
+							provisioner.execute(plan);
+						}else{
+							return;
+						}
+					}
+				}
+				
+			}
+			
+	}catch(Exception e){
+		
+	}
+		
+       
+        
+         </Source>
+    </Script>
+    <Transition to="Create Disable Plan"/>
+  </Step>
+  <Step name="Create Disable Plan" posX="98" posY="10" resultVariable="plan">
+    <Description>Process the Active Directory Account Disable Process.</Description>
+    <Script>
+      <Source>		
+        System.out.println("inside Create Disable Plan ======");
+        /**
+        * Create User On Target Resources
+        * This creates a provision plan and executes it to create the user on Target resources.
+        */
+        import sailpoint.api.SailPointContext;
+        import sailpoint.object.ProvisioningPlan;
+        import sailpoint.object.Identity;
+        import sailpoint.object.ProvisioningPlan.AccountRequest;
+        import sailpoint.object.ProvisioningPlan.AttributeRequest;
+        import sailpoint.object.Link;
+        import sailpoint.object.Custom;
+        import sailpoint.tools.GeneralException;
+        import sailpoint.object.Attributes;
+        import java.util.ArrayList;
+        import java.util.List;
+        import java.text.DateFormat;
+        import java.text.SimpleDateFormat;
+        import java.util.Date;
+
+        import java.util.Calendar;
+        import java.util.HashMap;
+        import java.util.Map;
+        import sailpoint.api.IdentityService;
+
+        //System.out.println("AD Disable Workflow");
+        ProvisioningPlan plan = new ProvisioningPlan();
+
+        /* Production changes:
+        Need to update application name and String OU
+        before deploying code on production. */
+
+        try {
+        //Prepare provisioning plan account disable
+
+        List accReqs = new ArrayList();
+        boolean adCheck = false;
+        boolean alreadyDisabledUserFlag = false;
+        boolean doNotDisable = false;
+        String deletedOuContainer;
+
+        String nativeIdentity;
+        String adApplicationName = "Active Directory";
+      
+       // log.debug("AD Application Name = " + adApplicationName);
+
+        Identity identity = context.getObjectByName(Identity.class,identityName);        	
+
+        //if(identity.isLocked()){
+        //log.error("Inside islock if loooop====>");
+        //identity.setLock("false");
+        //ObjectUtil.unlockIdentity(context, identity);
+        //context.saveObject(identity);
+        //context.commitTransaction();
+        //}
+
+        if(identity != null){
+        List&lt;Link> links = identity.getLinks();
+        if(links != null &amp;&amp; links.size() > 0) {   
+        for(Link link : links) {
+        if(link.getApplicationName().equalsIgnoreCase(adApplicationName)) {
+        adCheck = true;  
+        
+        //code added for excluding identities from Offboarding --start
+
+        IdentityService identityService = new IdentityService(context);
+        List wdLinks=identityService.getLinks(identity, context.getObjectByName(Application.class, "WorkdayApp"));
+        Link wdLink=null;
+        String businessProcessReason = null;
+        String primaryTerminationReason = null;
+        String employeeType = null;
+        if(!wdLinks.isEmpty() &amp;&amp; wdLinks.size()>0){
+        wdLink=wdLinks.get(0);
+        businessProcessReason = wdLink.getAttribute("Business_Process_Reason__c");
+        primaryTerminationReason = wdLink.getAttribute("Primary_Termination_Reason");
+		employeeType = wdLink.getAttribute("Worker_Type__c");
+        if(Util.isNotNullOrEmpty(businessProcessReason)){
+        if(((Util.nullSafeCaseInsensitiveEq(businessProcessReason, "End Contingent Worker Contract > Convert to Employee > Convert to Employee")) || (businessProcessReason.toLowerCase().contains("end contingent worker contract") &amp;&amp; businessProcessReason.toLowerCase().contains("convert to employee"))) &amp;&amp; (!Util.nullSafeCaseInsensitiveEq(employeeType, "Employee"))){ 
+        doNotDisable = true;
+        wfcontext.setVariable("doNotDisable",doNotDisable);
+        return;
+        }
+        }
+        if(Util.isNotNullOrEmpty(primaryTerminationReason)){
+        if(primaryTerminationReason.equalsIgnoreCase("03435c41d16e10abc45ac8f0ad1cdc81COUNTRY_TO_COUNTRY_TRANSFER_E_VCOUNTRY_TO_COUNTRY_TRANSFER_E_V")){
+        doNotDisable = true;
+        wfcontext.setVariable("doNotDisable",doNotDisable);
+        return;
+        }		
+        }    
+        }
+ 				
+        //code added for excluding identities from Offboarding --end
+
+        String netID = identity.getStringAttribute("netid");
+
+        if(!link.isDisabled()){
+        
+        String adDescription = link.getAttribute("description");
+        if(Util.isNotNullOrEmpty(adDescription)){
+        adDescription = adDescription.toLowerCase();
+        //if((adDescription.contains("dnd")) || (adDescription.contains("dnp")) || (adDescription.contains("forwarding")))
+        if(adDescription.contains("forwarding")) {        
+        doNotDisable = true;
+        wfcontext.setVariable("doNotDisable",doNotDisable);
+        return;        
+        }
+        } 
+
+        ProvisioningPlan.AccountRequest accReq1 = new ProvisioningPlan.AccountRequest();
+        ProvisioningPlan.AccountRequest accReq2 = new ProvisioningPlan.AccountRequest();
+        System.out.println("Active Directory account");
+
+        //Users can able to move these below deleted ou based on DC
+
+        String northAmericaDOU="OU=Disabled Accounts,OU=Support,OU=Administration,DC=NorthAmerica,DC=DelphiAuto,DC=net";
+        String europeDOU="OU=Disabled Accounts,OU=Support,OU=Administration,DC=Europe,DC=DelphiAuto,DC=net";
+        String asiaDOU="OU=Disabled Accounts,OU=Support,OU=Administration,DC=Asia,DC=DelphiAuto,DC=net";
+        
+        //DC's belongs to Delphi
+        String northAmericaDC="DC=NorthAmerica,DC=DelphiAuto,DC=net";
+        String asiaDC="DC=Asia,DC=DelphiAuto,DC=net";
+        String europeDC="DC=Europe,DC=DelphiAuto,DC=net";
+       
+        //upgchanged ni defn to above
+        nativeIdentity=link.getNativeIdentity();
+        System.out.println("nativeIdentity------"+nativeIdentity);
+        if(nativeIdentity.toUpperCase().contains(northAmericaDC.toUpperCase())){
+        deletedOuContainer=northAmericaDOU;
+        }else if(nativeIdentity.toUpperCase().contains(europeDC.toUpperCase())){
+        deletedOuContainer=europeDOU;
+        }else if(nativeIdentity.toUpperCase().contains(asiaDC.toUpperCase())){
+        deletedOuContainer=asiaDOU;
+        }
+
+       // log.debug("deletedOuContainer------"+deletedOuContainer);
+
+
+        accReq1.setOperation(AccountRequest.Operation.Disable);
+        accReq1.setApplication(link.getApplicationName());
+        accReq1.setNativeIdentity(link.getNativeIdentity());	
+        accReqs.add(accReq1);	
+
+        String infoValue=link.getAttribute("info")!=null?link.getAttribute("info"):" ";
+        /* 
+        ***
+        ***
+        ***Code to populate info attribute value based on mail,nativeidentity,sip address
+        */
+        String proxyAddresses="";
+        Attributes attrs=link.getAttributes();
+        if(attrs.get("proxyAddresses")!=null){
+        List proxyAddressList = link.getAttribute("proxyAddresses");
+        for(String proxyAddress : proxyAddressList)	{
+        if(proxyAddress.contains("sip:")){
+        proxyAddresses = proxyAddress;
+        }
+        }
+        }
+
+
+        String checkMail=identity.getStringAttribute("email");
+        //String info="Email:"+checkMail+" Original Location:"+nativeIdentity+""+infoValue+"sip address:"+proxyAddresses;
+        // Store group membership information
+
+        StringBuilder sb = new StringBuilder();
+        String entinfo = "Grp Info:|";
+        gpinfo = new ArrayList(); 
+        String einfo;
+        ArrayList als = new ArrayList();
+
+        gpinfo = link.getAttribute("memberOf");
+       // log.error("grp info" + gpinfo);
+        if(gpinfo!=null)
+        {
+        Iterator itr = gpinfo.iterator();
+        while(itr.hasNext())
+        {
+        String temp;
+        temp = itr.next();
+		als.add(temp);
+        } 
+        }
+
+        //String info="Original Location:"+nativeIdentity+"__"+infoValue+"|Email:"+checkMail+"--"+"sip address:"+proxyAddresses+"|"+"grp info:"+einfo;
+        String info="Original Location:"+nativeIdentity+"__"+infoValue+"|Email:"+checkMail+"--"+"sip address:"+proxyAddresses;
+                     
+        //logic addition to include the reason for disablement in info attribute
+        String terminationReason=null;
+        String identityTerminated=null;
+
+        identityTerminated = identity.getAttribute("termination_flag");
+        terminationReason = (Util.nullSafeCaseInsensitiveEq(identityTerminated, "y") || Util.nullSafeCaseInsensitiveEq(identityTerminated, "yes")) ? "Terminated from Workday" : "Terminated due to Inactivity";
+        if(Util.isNotNullOrEmpty(terminationReason)) info = terminationReason+"|"+	info;
+		wfcontext.setVariable("terminationReason",terminationReason);
+		
+        String mail_ext=null;
+        String mgd_ext=null;
+
+        if(checkMail != null &amp;&amp; netID!= null){
+        if(checkMail.contains("@delphi.com")){
+        mail_ext="@delphi.com";
+        mgd_ext="@mgd.delphi.com";
+        }else{
+        mail_ext="@aptiv.com";
+        mgd_ext="@mgd.aptiv.com";
+        }
+        String netEmail=netID+mail_ext;
+
+        accReq2.add(new AttributeRequest("mail",ProvisioningPlan.Operation.Set,netEmail));
+        accReq2.add(new AttributeRequest("userPrincipalName",ProvisioningPlan.Operation.Set,netID+"@delphi.com"));
+        accReq2.add(new AttributeRequest("proxyAddresses",ProvisioningPlan.Operation.Set,netEmail));
+        accReq2.add(new AttributeRequest("proxyAddresses",ProvisioningPlan.Operation.Add,netID+mgd_ext));						
+        accReq2.add(new AttributeRequest("proxyAddresses",ProvisioningPlan.Operation.Add,"sip:"+netEmail));
+        accReq2.add(new AttributeRequest("targetAddress",ProvisioningPlan.Operation.Set,"SMTP:"+netID+mgd_ext));
+        accReq2.add(new AttributeRequest("mailNickname",ProvisioningPlan.Operation.Set,netEmail));
+        //To set msRTCSIP-PrimaryUserAddress as netID@dephi.com format
+        accReq2.add(new AttributeRequest("msRTCSIP-PrimaryUserAddress",ProvisioningPlan.Operation.Set,"sip:"+netEmail));
+        //log.error("info-"+info);
+        accReq2.add(new AttributeRequest("info",ProvisioningPlan.Operation.Set,info));
+        Date currentDateTemp = new Date();
+        SimpleDateFormat sdfTemp = new SimpleDateFormat("MM.dd.yyyy");
+        String terminatedDateTemp = sdfTemp.format(currentDateTemp);
+        accReq2.add(new AttributeRequest("description",ProvisioningPlan.Operation.Set,"Suspended by northamerica\\sid_sailpoint on "+terminatedDateTemp));
+        }
+        accReq2.add(new AttributeRequest("AC_NewParent",ProvisioningPlan.Operation.Set, deletedOuContainer));
+        //Set time zone to US
+        Date date = new Date();
+        DateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy hh:mm:ss");
+        TimeZone usTimeZone = TimeZone.getTimeZone("UTC");
+        dateFormat.setTimeZone(usTimeZone);
+        String sDateInAmerica = dateFormat.format(date); 
+        Date utcDate=dateFormat.parse(sDateInAmerica);
+        System.out.println("utcDate---->>>"+utcDate);
+        accReq2.add(new AttributeRequest("whenDisabled",ProvisioningPlan.Operation.Set,utcDate));
+        accReq2.setOperation(AccountRequest.Operation.Modify);
+        accReq2.setApplication(link.getApplicationName());
+        accReq2.setNativeIdentity(link.getNativeIdentity());	
+
+        accReqs.add(accReq2);	
+       // log.debug("Active Directory account, accReqs------------"+accReqs);
+        plan.setAccountRequests(accReqs);
+        plan.setIdentity(identity);
+
+
+        identity.setAttribute("terminated", "Y");
+        Date currentDate = new Date();
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd");
+        String terminatedDate = sdf.format(currentDate);
+        identity.setAttribute("Identity_Term_Date", terminatedDate);
+        identity.setAttribute("inactive", true);
+        identity.setAttribute("isReactivated", "false");
+        identity.setAttribute("infoAD", als);
+        context.saveObject(identity);
+        context.commitTransaction();
+        context.decache(identity);
+
+        }else if(link.isDisabled()){
+
+        alreadyDisabledUserFlag = true;						
+
+        //converting whenDisabled and termination dates into required date format 'MMM dd,yyyy'.
+        Date whenDisabledDateInput;
+        String whenDisabledDateOutput;
+
+        Date terminationDateInput;
+        String terminationDateOutput;
+
+        DateFormat inputDateFormat  = new SimpleDateFormat("yyyyMMddHHmmss'.0Z'");
+        DateFormat terminationInputDateFormat  = new SimpleDateFormat("MM/dd/yy");
+        DateFormat outputDateFormat = new SimpleDateFormat("MMM dd, yyyy");
+
+        String whenDisabledDateStr = link.getAttribute("whenDisabled") != null ? link.getAttribute("whenDisabled"): "";
+        String terminationdateStr = identity.getAttribute("terminationdate")!= null ? identity.getAttribute("terminationdate"): "";
+
+        if(null != whenDisabledDateStr &amp;&amp; !(whenDisabledDateStr.isEmpty())) {
+
+        whenDisabledDateInput = inputDateFormat.parse((String) whenDisabledDateStr);
+        System.out.println("input date ====>" + whenDisabledDateInput);
+
+        whenDisabledDateOutput = outputDateFormat.format(whenDisabledDateInput);
+        System.out.println("output ===>" + whenDisabledDateOutput);								
+        }
+
+        if(null != terminationdateStr &amp;&amp; !(terminationdateStr.isEmpty())) {
+
+        terminationDateInput = terminationInputDateFormat.parse((String) terminationdateStr);
+        System.out.println("terminationDateInput date ====>" + terminationDateInput);
+
+        terminationDateOutput = outputDateFormat.format(terminationDateInput);
+        System.out.println("terminationDateOutput is ===>" + terminationDateOutput);								
+        }
+
+        // Map to store the requred attribu data for audit creation
+
+        Map attributMap = new HashMap();   						
+
+        attributMap.put("NetID", netID);
+        attributMap.put("EmployeeID", identityName);
+        attributMap.put("Description",link.getAttribute("description") != null ? link.getAttribute("description"): "" );
+        attributMap.put("DistinguishedName",link.getAttribute("distinguishedName") != null ? link.getAttribute("distinguishedName"): "" );
+        attributMap.put("WhenDisabled",whenDisabledDateOutput);
+        attributMap.put("TerminationDate", terminationDateOutput);
+        attributMap.put("LeaverProcessingDate", Calendar.getInstance().getTime() );	                                        
+        wfcontext.setVariable("attributMap",attributMap);
+
+        }	
+        } 
+        }
+        }
+        wfcontext.setVariable("doNotDisable",doNotDisable);
+        wfcontext.setVariable("adCheck",adCheck);
+        wfcontext.setVariable("alreadyDisabledUserFlag",alreadyDisabledUserFlag);
+        wfcontext.setVariable("managerMail",identity.getManager()!=null ? identity.getManager().getAttribute("email"):"iam.aptiv@aptiv.com");
+        wfcontext.setVariable("loginID",identity.getAttribute("netid"));
+        wfcontext.setVariable("firstname",identity.getAttribute("firstname"));
+        wfcontext.setVariable("lastname",identity.getAttribute("lastname"));
+        wfcontext.setVariable("deletedOuContainer",deletedOuContainer);
+        wfcontext.setVariable("nativeIdentity",nativeIdentity);
+        }
+        wfcontext.setVariable("adApplicationName", adApplicationName);
+
+        } catch (GeneralException e) {
+        // TODO Auto-generated catch block
+        System.out.println("There is error on user termination : " + e.getMessage());
+        }
+        // log.error("plan---------InactiveRetire----------------->"+plan.toXml());
+        return plan; 
+      </Source>
+    </Script>
+    <Transition to="Audit Event for Termination exclusion">
+      <Script>
+        <Source>
+      
+          log.error("doNotDisable-" + doNotDisable);      
+
+          if(doNotDisable){
+          return true;
+          }
+
+          return false;
+
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="Audit Event Creation For AD">
+      <Script>
+        <Source>
+         // log.debug("adCheck in transition------------" + adCheck);      
+
+          if(!adCheck){	
+
+          wfcontext.setVariable("auditAction","TerminatedUser_AD_NotExist");
+          return true;
+          }
+
+          return false;
+
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="Already Disable User Audit Event">
+      <Script>
+        <Source>		
+          if(alreadyDisabledUserFlag){
+         // log.disabled("inside is Already Disable User Audit Event ========>"+ alreadyDisabledUserFlag);
+          return true;	
+          }
+          System.out.println("skipping already disabled event");
+          return false;
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="Schedule AD Group Removal"/>
+    <Transition to="end"/>
+  </Step>
+  <Step name="Audit Event Creation For AD" posX="832" posY="10">
+    <Script>
+      <Source>
+
+        import sailpoint.object.AuditEvent;
+        import sailpoint.server.Auditor;
+        import sailpoint.tools.GeneralException;				
+
+
+        if (auditAction != null) {	
+
+        AuditEvent auditEvent = new AuditEvent();
+        auditEvent.setTarget(identityName);
+        auditEvent.setAccountName(identityName);
+        auditEvent.setAction(auditAction);
+        auditEvent.setSource("Aptiv-WorkFlow-OffBoarding");
+        auditEvent.setString1("User Termination incomplete because " + auditAction);
+        Auditor.log(auditEvent);
+
+        context.saveObject(auditEvent);
+        context.commitTransaction();
+        }
+
+      </Source>
+    </Script>
+    <Transition to="completed"/>
+  </Step>
+  <Step name="Audit Event for Termination exclusion" posX="832" posY="10">
+    <Script>
+      <Source>
+        
+        import sailpoint.object.AuditEvent;
+        import sailpoint.server.Auditor;
+        import sailpoint.tools.GeneralException;
+        
+        AuditEvent auditEvent = new AuditEvent();
+
+        auditEvent.setTarget(identityName);
+        auditEvent.setAccountName(identityName);
+        auditEvent.setAction("AuditEventForUsersExclusionFromTermination");
+        auditEvent.setSource(workflow.getName());
+				auditEvent.setString1("User Termination incomplete because " + "AuditEventForUsersExclusionFromTermination");
+        Auditor.log(auditEvent);
+
+        context.saveObject(auditEvent);
+        context.commitTransaction();	
+
+      </Source>
+    </Script>
+    <Transition to="completed"/>
+  </Step>
+  <Step name="Already Disable User Audit Event" posX="832" posY="10">
+    <Script>
+      <Source>
+        System.out.println("Already Disable User Audit Event ------------"+workflow.getName());
+        System.out.println("attributMap ------------"+attributMap);
+        alreadyDisableUserAuditObj(workflow.getName(),attributMap);
+      </Source>
+    </Script>
+    <Transition to="Schedule AD Group Removal"/>
+  </Step>
+  <Step action="call:scheduleWorkflowEvent" name="Schedule AD Group Removal" posX="832" posY="10">
+    <Arg name="identityName" value="ref:identityName"/>
+    <Arg name="workflow" value="Delphi-Workflow-AD-GroupRemoval"/>
+    <Arg name="scheduleDate">
+      <Script>
+        <Source>
+
+
+          import sailpoint.api.SailPointContext;
+          import java.util.Calendar;
+          import java.util.Date;
+          import java.text.DateFormat;
+          import java.text.ParseException;
+          import java.text.SimpleDateFormat;
+          import sailpoint.object.Custom;
+          import sailpoint.tools.GeneralException;
+          log.debug("Schedule AD Group Removal");
+          Date scheduledDate = null;
+          try {
+
+          Custom customADConfig = context.getObjectByName(Custom.class,"Delphi-CustomObject-ADConfiguration");
+          if(customADConfig == null){
+          throw new GeneralException("Unable to get Custom Object AD Configuration");
+          }
+          if(customADConfig.getInt("RemoveADGroupAfterDays") == 0){
+          throw new GeneralException("Unable to get Custom Object AD Configuration values");
+          }
+
+          DateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+          String terminatedDate = dateFormat.format(new Date());
+          log.debug("Date of Termination : " + terminatedDate);
+          Integer numOfDays = customADConfig.getInt("RemoveADGroupAfterDays");
+          log.debug("Number of Days after AD Groups should be removed : " + numOfDays);
+          if(terminatedDate != null){
+          log.debug("Terminated Date :"+terminatedDate);
+          SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+          Calendar c = Calendar.getInstance();
+          c.setTime(sdf.parse(terminatedDate));
+          log.debug("Disabled Date" + c.getTime());
+          c.add(Calendar.DATE, numOfDays);  // number of days to add
+          scheduledDate = c.getTime();
+          log.debug("Spppppppppppp" + scheduledDate);
+          }			 
+          } catch (ParseException e) {
+          // TODO Auto-generated catch block
+          log.debug("ParseException on AD group removal schedule : " + e.getMessage());
+          } catch (GeneralException e){
+          log.debug("GeneralException on AD group removal schedule : " + e.getMessage());
+          }
+          log.debug("scheduledDate---->>>>"+scheduledDate);
+          return scheduledDate;
+
+        </Source>
+      </Script>
+    </Arg>
+    <Arg name="launcher" value="ref:launcher"/>
+    <Transition to="Initialize"/>
+  </Step>
+  <Step action="call:scheduleWorkflowEvent" name="Schedule AD Account Delete" posX="832" posY="10">
+    <Arg name="identityName" value="ref:identityName"/>
+    <Arg name="workflow" value="Delphi-Workflow-AD-AccountDelete"/>
+    <Arg name="scheduleDate">
+      <Script>
+        <Source>
+
+          import sailpoint.api.SailPointContext;
+          import java.util.Calendar;
+          import java.util.Date;
+          import java.text.DateFormat;
+          import java.text.ParseException;
+          import java.text.SimpleDateFormat;
+          import sailpoint.object.Custom;
+          import sailpoint.tools.GeneralException;
+          log.debug("Schedule AD Group Removal");
+          Date scheduledDate = null;
+          try {
+
+          Custom customADConfig = context.getObjectByName(Custom.class,"Delphi-CustomObject-ADConfiguration");
+          if(customADConfig == null){
+          throw new GeneralException("Unable to get Custom Object AD Configuration");
+          }
+          if(customADConfig.getInt("RemoveADAccountAfterDays") == 0){
+          throw new GeneralException("Unable to get Custom Object AD Configuration values");
+          }
+
+          DateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+          String terminatedDate = dateFormat.format(new Date());
+          log.debug("Date of Termination : " + terminatedDate);
+          Integer numOfDays = customADConfig.getInt("RemoveADAccountAfterDays");
+          log.debug("Number of Days after AD Groups should be removed : " + numOfDays);
+          if(terminatedDate != null){
+          log.debug("Terminated Date :"+terminatedDate);
+          SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+          Calendar c = Calendar.getInstance();
+          c.setTime(sdf.parse(terminatedDate));
+          log.debug("Disabled Date" + c.getTime());
+          c.add(Calendar.DATE, numOfDays);  // number of days to add
+          scheduledDate = c.getTime();
+          log.debug("Spppppppppppp" + scheduledDate);
+          }			 
+          } catch (ParseException e) {
+          // TODO Auto-generated catch block
+          log.debug("ParseException on AD group removal schedule : " + e.getMessage());
+          } catch (GeneralException e){
+          log.debug("GeneralException on AD group removal schedule : " + e.getMessage());
+          }
+          log.debug("scheduledDate---->>>>"+scheduledDate);
+          return scheduledDate;
+
+        </Source>
+      </Script>
+    </Arg>
+    <Arg name="launcher" value="ref:launcher"/>
+    <Transition to="Initialize"/>
+  </Step>
+  <Step icon="Task" name="Initialize" posX="272" posY="10">
+    <Arg name="formTemplate" value="Identity Update"/>
+    <Arg name="approvalScheme" value="none"/>
+    <Arg name="enableRetryRequest"/>
+    <Arg name="allowRequestsWithViolations"/>
+    <Arg name="endOnManualWorkItems"/>
+    <Arg name="policiesToCheck"/>
+    <Arg name="project"/>
+    <Arg name="workItemComments"/>
+    <Arg name="identityRequestId"/>
+    <Arg name="source" value="ref:source"/>
+    <Arg name="identityDisplayName" value="ref:identityDisplayName"/>
+    <Arg name="requireViolationReviewComments"/>
+    <Arg name="identityRequest"/>
+    <Arg name="trace" value="ref:trace"/>
+    <Arg name="endOnProvisioningForms"/>
+    <Arg name="plan" value="ref:plan"/>
+    <Arg name="flow"/>
+    <Arg name="identityName" value="ref:identityName"/>
+    <Arg name="approvalSet"/>
+    <Arg name="policyViolations"/>
+    <Arg name="violationReviewDecision"/>
+    <Arg name="policyScheme" value="none"/>
+    <Arg name="priority" value="ref:workItemPriority"/>
+    <Arg name="asyncCacheRefresh"/>
+    <Arg name="optimisticProvisioning" value="ref:optimisticProvisioning"/>
+    <Arg name="launcher" value="ref:launcher"/>
+    <Description>
+      Call the standard subprocess to initialize the accountRequestObject, this includes
+      auditing, building the approvalset, compiling the plan into 
+      project and checking policy violations.
+    </Description>
+    <Return name="project" to="project"/>
+    <Return name="approvalSet" to="approvalSet"/>
+    <Return name="identityRequestId" to="identityRequestId"/>
+    <Return name="policyViolations" to="policyViolations"/>
+    <WorkflowRef>
+      <Reference class="sailpoint.object.Workflow" id="8a40a8766317522b016325704bf0012d" name="Identity Request Initialize"/>
+    </WorkflowRef>
+    <Transition to="Provision"/>
+  </Step>
+  <Step icon="Task" name="Provision" posX="382" posY="10" wait="-1">
+    <Arg name="formTemplate" value="Identity Update"/>
+    <Arg name="approvalScheme" value="string:none"/>
+    <Arg name="identityName" value="ref:identityName"/>
+    <Arg name="fallbackApprover" value="string:spadmin"/>
+    <Arg name="approvalSet"/>
+    <Arg name="manualActionsEmailTemplate" value="Pending Manual Changes"/>
+    <Arg name="workItemComments"/>
+    <Arg name="project" value="ref:project"/>
+    <Arg name="policyViolations"/>
+    <Arg name="identityRequestId"/>
+    <Arg name="priority"/>
+    <Arg name="policyScheme"/>
+    <Arg name="splitProvisioning"/>
+    <Arg name="foregroundProvisioning" value="string:true"/>
+    <Arg name="identityDisplayName" value="ref:identityDisplayName"/>
+    <Arg name="trace" value="ref:trace"/>
+    <Arg name="recompile"/>
+    <Arg name="optimisticProvisioning" value="string:true"/>
+    <Arg name="plan"/>
+    <Arg name="flow" value="string:AccountsRequest"/>
+    <Arg name="launcher" value="string:spadmin"/>
+    <Description>
+      Call the standard subprocess that will process the
+      approval decisions and do provisioning.  This
+      includes calling any configured provisioning
+      connectors and building manual actions.
+    </Description>
+    <Return name="project" to="project"/>
+    <WorkflowRef>
+      <Reference class="sailpoint.object.Workflow" id="8a40a8766317522b016325704c1f012e" name="Identity Request Provision"/>
+    </WorkflowRef>
+    <Transition to="check result"/>
+  </Step>
+  <Step name="check result" posX="484" posY="10">
+    <Transition to="Check Provisioning Result">
+      <Script>
+        <Source>
+
+          import sailpoint.object.ProvisioningPlan;
+          import sailpoint.object.ProvisioningResult;
+          import sailpoint.object.ProvisioningPlan.AccountRequest;
+          import sailpoint.tools.Message;
+          import sailpoint.tools.GeneralException;
+          import sailpoint.object.Custom;
+          import sailpoint.api.SailPointContext;
+
+          log.debug("Prepare Error Messages " );
+          try{	
+
+          //String adApplicationName = "Active Directory Direct";
+          if(null != adApplicationName ){
+          ProvisioningPlan proPlan = project.getPlan(adApplicationName);
+          if (proPlan != null) {
+          ProvisioningResult provResult = proPlan.getResult();
+          System.out.println("check result2 : ");
+          if (provResult != null) {
+          System.out.println("result : " + provResult);
+          String status =(String) provResult.getStatus();
+          System.out.println("status : " + status);
+          if (status != null &amp;&amp; status.equalsIgnoreCase(ProvisioningResult.STATUS_FAILED)) {
+          return false;
+          }
+          else {
+          return true;
+          }
+          } 
+          else{
+          System.out.println("provResult is null : " + provResult);
+          List&lt;AccountRequest> accountRequests =  proPlan.getAccountRequests();
+          if(accountRequests != null &amp;&amp; !(accountRequests.isEmpty())){
+          ProvisioningResult accResult = accountRequests.get(0).getResult();
+          if(accResult != null){
+          System.out.println("result : " + accResult);
+          String accStatus =(String) accResult.getStatus();
+          System.out.println("status : " + accStatus);
+          if(accStatus != null &amp;&amp; accStatus.equalsIgnoreCase(ProvisioningResult.STATUS_FAILED)){
+          return false;
+          }else {
+          return true;
+          }
+          }
+          }
+          }
+          }
+          }
+          }catch(GeneralException e){
+          System.out.println("Unable to create account for active directory " + e.getMessage());
+          }
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="Refresh Identity"/>
+  </Step>
+  <Step name="Check Provisioning Result">
+    <Transition to="Single Account Aggregation">
+      <Script>
+        <Source>		
+          if(!alreadyDisabledUserFlag){
+          System.out.println("active user ");
+          return true;	
+          }
+          System.out.println("inside is Already Disable skip SAA ========>");
+          return false;
+        </Source>
+      </Script>
+    </Transition>
+  </Step>
+  <Step action="refreshIdentity" icon="Default" name="Refresh Identity" posX="862" posY="152">
+    <Arg name="refreshLinks" value="false"/>
+    <Arg name="identityName" value="ref:identityName"/>
+    <Transition to="Finalize"/>
+  </Step>
+  <Step name="Single Account Aggregation">
+    <Script>
+      <Source> 
+
+        import sailpoint.object.Application;
+        import sailpoint.object.Attributes;
+        import sailpoint.object.Custom;
+        import sailpoint.object.Filter;
+        import sailpoint.object.Identity;
+        import sailpoint.object.Link;
+        import sailpoint.object.QueryOptions;
+        import sailpoint.object.ResourceObject;
+        import sailpoint.object.TaskResult;
+        import sailpoint.object.Rule;
+        import sailpoint.connector.JDBCConnector;
+        import sailpoint.api.Aggregator;
+        import sailpoint.connector.Connector;
+        import org.apache.log4j.Logger;
+        import org.apache.log4j.Level;
+
+
+        String errorMessage1;
+
+        // We need some values defined to know which account we want to aggregate.
+
+
+        int loc = nativeIdentity.indexOf("OU=");
+        String NewCN = nativeIdentity.substring(0, loc);
+
+        System.out.println("parsed str: " + NewCN);
+
+        String accountName  = NewCN + deletedOuContainer;
+
+        System.out.println("Account name " + accountName);
+
+        // We have already validated all of the arguments.  No just load the objects.
+        Application appObject = context.getObjectByName(Application.class, adApplicationName);
+        String appConnName = appObject.getConnector();
+
+
+        log.debug("Application " + adApplicationName + " uses connector " + appConnName);
+
+        Connector appConnector = sailpoint.connector.ConnectorFactory.getConnector(appObject, null);
+
+        if (null == appConnector) {
+        errorMessage1 = "Failed to construct an instance of connector [" + appConnName + "]";
+        log.debug("Error message in Single Account Aggregation" + errorMessage1);  
+        }
+
+        log.debug("Connector instantiated, calling getObject() to read account details...");
+        System.out.println("Connector instantiated, calling getObject() to read account details...");
+        ResourceObject rObj = null;
+        try {
+        System.out.println("accountName"+accountName);
+
+        rObj = (ResourceObject) appConnector.getObject("account", accountName, null);
+        System.out.println("getting the resource object");
+        } catch (sailpoint.connector.ObjectNotFoundException onfe) {
+        errorMessage1 = "Connector could not find account: [" + accountName + "]";
+        errorMessage1 += " in application  [" + applicationName + "]";
+        System.out.println("error : "+errorMessage1);
+        }
+
+        if (null == rObj) {
+        errorMessage1 = "ERROR: Could not get ResourceObject for account: " + accountName;
+        System.out.println("errorMessage"+errorMessage1);
+        }
+        System.out.println("resourceObject:"+ rObj.toXml());
+
+        // Create an arguments map for the aggregation task. 
+        // To change this (if you need to), the map contains aggregation options and is the same as the 
+        // arguments to the acocunt aggregation tasks.  Some suggestied defaults are:
+        Attributes argMap = new Attributes();
+        argMap.put("promoteAttributes",       "true");
+        argMap.put("correlateEntitlements",   "true");
+        argMap.put("noOptimizeReaggregation", "true");  
+        // Consturct an aggregator instance.
+        Aggregator agg = new Aggregator(context, argMap);
+        if (null == agg) {
+        errorMessage1 = "Null Aggregator returned from constructor.  Unable to Aggregate!";
+        System.out.println("errorMessage during aggregation due to :"+errorMessage1);
+        }
+
+        TaskResult taskResult = agg.aggregate(appObject, rObj);
+        System.out.println("aggregation complete ");
+
+        if (null == taskResult) {
+        errorMessage1 = "ERROR: Null taskResult returned from aggregate() call.";
+        System.out.println("Error in task result due to "+errorMessage1);
+
+        }
+
+      </Source>
+    </Script>
+    <Transition to="Create Disable Plan for Aptiv Domain"/>
+  </Step>
+  <Step name="Create Disable Plan for Aptiv Domain" posX="98" posY="10" resultVariable="plan">
+    <Description>Process the Active Directory Aptiv Domain Account Disable Process.</Description>
+    <Script>
+      <Source>		
+        import sailpoint.api.SailPointContext;
+        import sailpoint.object.ProvisioningPlan;
+        import sailpoint.object.Identity;
+        import sailpoint.object.ProvisioningPlan.AccountRequest;
+        import sailpoint.object.ProvisioningPlan.AttributeRequest;
+        import sailpoint.object.Link;
+        import sailpoint.object.Custom;
+        import sailpoint.tools.GeneralException;
+        import sailpoint.object.Attributes;
+        import java.util.ArrayList;
+        import java.util.List;
+        import java.text.DateFormat;
+        import java.text.SimpleDateFormat;
+        import java.util.Date;
+        import sailpoint.tools.Util;
+        import java.util.Calendar;
+        import java.util.HashMap;
+        import java.util.Map;
+        import sailpoint.api.IdentityService;
+        import sailpoint.api.Provisioner;
+
+
+        ProvisioningPlan aptivPlan = new ProvisioningPlan();
+        String adApplicationNameAptiv = "Aptiv-Active Directory";
+
+        try {
+        //Prepare provisioning plan account disable
+        List accReqs = new ArrayList();
+        boolean adCheckAptiv = false;
+        boolean alreadyDisabledUserFlagAptiv = false;
+        String deletedOuContainerAptiv;
+
+        String nativeIdentityAptiv;
+
+        Identity identity = context.getObjectByName(Identity.class,identityName);        	
+
+        if(identity != null){
+        List&lt;Link> links = identity.getLinks();
+        if(links != null &amp;&amp; links.size() > 0) {   
+        for(Link link : links) {  
+        if(link.getApplicationName().equalsIgnoreCase(adApplicationNameAptiv)) {
+
+        adCheckAptiv = true;
+        String netID = identity.getStringAttribute("netid");
+        if(!link.isDisabled()){  
+
+        ProvisioningPlan.AccountRequest accReqAp1 = new ProvisioningPlan.AccountRequest();
+
+        //Users can able to move these below deleted ou based on DC
+
+        /*
+        Production disabled OU--need to be turned on when in production
+        String aptivDOU = "OU=Disabled Accounts,OU=Support,OU=Administration,OU=APTIV,DC=aptiv,DC=com"		
+        */
+
+        String aptivDOU = "OU=Disabled Accounts,OU=Support,OU=Administration,OU=APTIV,DC=aptiv,DC=com";
+
+        //upgchanged ni defn to above
+        nativeIdentityAptiv=link.getNativeIdentity();
+
+        deletedOuContainerAptiv=aptivDOU;
+        accReqAp1.setOperation(AccountRequest.Operation.Disable);
+        accReqAp1.setApplication(link.getApplicationName());
+        accReqAp1.setNativeIdentity(link.getNativeIdentity());     
+
+        String infoValueAptiv = link.getAttribute("info")!=null?link.getAttribute("info"):" ";
+        
+        String linkMail=link.getAttribute("mail");
+        String checkMail=identity.getStringAttribute("email");
+        
+        String infoAptiv = "Original Location:"+nativeIdentityAptiv+"#"+infoValueAptiv+"|Email:"+linkMail;
+        
+        //if(Util.isNotNullOrEmpty(terminationReason)) infoAptiv = terminationReason+"|"+	infoAptiv;
+        
+        String mail_ext=null;
+        String mgd_ext=null;
+
+        if(checkMail != null &amp;&amp; netID!= null){
+        if(checkMail.contains("@delphi.com")){
+        mail_ext="@delphi.com";
+        mgd_ext="@mgd.delphi.com";
+        }else{
+        mail_ext="@aptiv.com";
+        mgd_ext="@mgd.aptiv.com";
+        }
+        String netEmail=netID+mail_ext;
+
+        accReqAp1.add(new AttributeRequest("info",ProvisioningPlan.Operation.Set,infoAptiv));
+        Date currentDateTemp = new Date();
+        SimpleDateFormat sdfTemp = new SimpleDateFormat("MM.dd.yyyy");
+        String terminatedDateTemp = sdfTemp.format(currentDateTemp);
+        accReqAp1.add(new AttributeRequest("description",ProvisioningPlan.Operation.Set,"Suspended by aptiv\\sid_sailpointsvc on "+terminatedDateTemp));
+        }
+        accReqAp1.add(new AttributeRequest("AC_NewParent",ProvisioningPlan.Operation.Set, deletedOuContainerAptiv));
+        //Set time zone to US
+        Date date = new Date();
+        DateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy hh:mm:ss");
+        TimeZone usTimeZone = TimeZone.getTimeZone("UTC");
+        dateFormat.setTimeZone(usTimeZone);
+        String sDateInAmerica = dateFormat.format(date); 
+        Date utcDate=dateFormat.parse(sDateInAmerica);
+        System.out.println("utcDate---->>>"+utcDate);
+        accReqAp1.add(new AttributeRequest("whenDisabled",ProvisioningPlan.Operation.Set,utcDate));
+		accReqs.add(accReqAp1);	
+        aptivPlan.setAccountRequests(accReqs);
+        aptivPlan.setIdentity(identity);
+
+        }else if(link.isDisabled()){
+
+        alreadyDisabledUserFlagAptiv = true;						
+        System.out.println("identityName is ====>" + identityName);					  
+
+        }	
+        } 
+        }
+        }
+        wfcontext.setVariable("adCheckAptiv",adCheckAptiv);
+        wfcontext.setVariable("alreadyDisabledUserFlagAptiv",alreadyDisabledUserFlagAptiv);
+        wfcontext.setVariable("deletedOuContainerAptiv",deletedOuContainerAptiv);
+        wfcontext.setVariable("nativeIdentityAptiv",nativeIdentityAptiv);
+
+        }
+        wfcontext.setVariable("adApplicationNameAptiv", adApplicationNameAptiv);
+
+        } catch (GeneralException e) {
+        // TODO Auto-generated catch block
+        System.out.println("There is error on user termination : " + e.getMessage());
+        }
+
+        //log.error("aptivPlan---"+aptivPlan.toXml());
+        Provisioner provisioner = new Provisioner(context);    
+        provisioner.setNoLocking(true);
+        provisioner.execute(aptivPlan);
+        
+        //return aptivPlan;
+        ProvisioningProject project = provisioner.getProject();       
+        ProvisioningPlan proPlan = project.getPlan(adApplicationNameAptiv);
+        wfcontext.setVariable("project",project);        
+        return proPlan;
+      </Source>
+    </Script>
+    <Transition to="Audit Event Creation For Aptiv Domain AD">
+      <Script>
+        <Source>
+
+
+          if(!adCheckAptiv){	
+
+          wfcontext.setVariable("auditAction","TerminatedUser_Aptiv_AD_NotExist");
+          return true;
+          }
+
+          return false;
+
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="Schedule Aptiv Domain AD Group Removal"/>
+    <Transition to="end"/>
+  </Step>
+  <Step name="Audit Event Creation For Aptiv Domain AD" posX="832" posY="10">
+    <Script>
+      <Source>
+
+        import sailpoint.object.AuditEvent;
+        import sailpoint.server.Auditor;
+        import sailpoint.tools.GeneralException;				
+
+
+        if (auditAction != null) {	
+
+        AuditEvent auditEvent = new AuditEvent();
+        auditEvent.setTarget(identityName);
+        auditEvent.setAccountName(identityName);
+        auditEvent.setAction(auditAction);
+        auditEvent.setSource("Aptiv-WorkFlow-OffBoarding");
+        auditEvent.setString1("User Termination incomplete because " + auditAction);
+        Auditor.log(auditEvent);
+
+        context.saveObject(auditEvent);
+        context.commitTransaction();
+        }
+
+      </Source>
+    </Script>
+    <Transition to="completed"/>
+  </Step>
+  <Step action="call:scheduleWorkflowEvent" name="Schedule Aptiv Domain AD Group Removal" posX="832" posY="10">
+    <Arg name="identityName" value="ref:identityName"/>
+    <Arg name="workflow" value="AptivDomain-Workflow-AD-GroupRemoval"/>
+    <Arg name="scheduleDate">
+      <Script>
+        <Source>
+
+          import sailpoint.api.SailPointContext;
+          import java.util.Calendar;
+          import java.util.Date;
+          import java.text.DateFormat;
+          import java.text.ParseException;
+          import java.text.SimpleDateFormat;
+          import sailpoint.object.Custom;
+          import sailpoint.tools.GeneralException;
+          log.debug("Schedule AD Group Removal");
+          Date scheduledDate = null;
+          try {
+
+          Custom customADConfig = context.getObjectByName(Custom.class,"Delphi-CustomObject-ADConfiguration");
+          if(customADConfig == null){
+          throw new GeneralException("Unable to get Custom Object AD Configuration");
+          }
+          if(customADConfig.getInt("RemoveADGroupAfterDays") == 0){
+          throw new GeneralException("Unable to get Custom Object AD Configuration values");
+          }
+
+          DateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+          String terminatedDate = dateFormat.format(new Date());
+          log.debug("Date of Termination : " + terminatedDate);
+          Integer numOfDays = customADConfig.getInt("RemoveADGroupAfterDays");
+          log.debug("Number of Days after AD Groups should be removed : " + numOfDays);
+          if(terminatedDate != null){
+          SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+          Calendar c = Calendar.getInstance();
+          c.setTime(sdf.parse(terminatedDate));
+          log.debug("Disabled Date" + c.getTime());
+          c.add(Calendar.DATE, numOfDays);  // number of days to add
+          scheduledDate = c.getTime();
+          log.debug("Spppppppppppp" + scheduledDate);
+          }			 
+          } catch (ParseException e) {
+          // TODO Auto-generated catch block
+          log.debug("ParseException on AD group removal schedule : " + e.getMessage());
+          } catch (GeneralException e){
+          log.debug("GeneralException on AD group removal schedule : " + e.getMessage());
+          }
+          return scheduledDate;
+        </Source>
+      </Script>
+    </Arg>
+    <Arg name="launcher" value="ref:launcher"/>
+    <Transition to="check result Aptiv AD"/>
+  </Step>
+  <Step name="check result Aptiv AD" posX="484" posY="10">
+    <Transition to="Aptiv AD Single Account Aggregation">
+      <Script>
+        <Source>
+
+          import sailpoint.object.ProvisioningPlan;
+          import sailpoint.object.ProvisioningResult;
+          import sailpoint.object.ProvisioningPlan.AccountRequest;
+          import sailpoint.tools.Message;
+          import sailpoint.tools.GeneralException;
+          import sailpoint.object.Custom;
+          import sailpoint.api.SailPointContext;
+
+          log.debug("Prepare Error Messages " );
+          try{	
+
+          String adApplicationNameAptiv = "Aptiv-Active Directory";
+          if(null != adApplicationNameAptiv){
+          ProvisioningPlan proPlan = project.getPlan(adApplicationNameAptiv);
+          if (proPlan != null) {
+          ProvisioningResult provResult = proPlan.getResult();
+          System.out.println("check result2 : ");
+          if (provResult != null) {
+          String status =(String) provResult.getStatus();
+          if (status != null &amp;&amp; status.equalsIgnoreCase(ProvisioningResult.STATUS_FAILED)) {
+          return false;
+          }
+          else {
+          wfcontext.setVariable("isAptivADDisabled","completed");
+          return true;
+          }
+          } 
+          else{
+          System.out.println("provResult is null : " + provResult);
+          List&lt;AccountRequest> accountRequests =  proPlan.getAccountRequests();
+          if(accountRequests != null &amp;&amp; !(accountRequests.isEmpty())){
+          ProvisioningResult accResult = accountRequests.get(0).getResult();
+          if(accResult != null){
+          System.out.println("result : " + accResult);
+          String accStatus =(String) accResult.getStatus();
+          if(accStatus != null &amp;&amp; accStatus.equalsIgnoreCase(ProvisioningResult.STATUS_FAILED)){
+          return false;
+          }else {
+          wfcontext.setVariable("isAptivADDisabled","completed");
+          return true;
+          }
+          }
+          }
+          }
+          }
+          }
+          }catch(GeneralException e){
+          log.error("Unable to create account for active directory " + e.getMessage());
+          }
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="Aptiv AD Single Account Aggregation"/>
+  </Step>
+  <Step name="Aptiv AD Single Account Aggregation">
+    <Script>
+      <Source> 
+
+        import sailpoint.object.Application;
+        import sailpoint.object.Attributes;
+        import sailpoint.object.Custom;
+        import sailpoint.object.Filter;
+        import sailpoint.object.Identity;
+        import sailpoint.object.Link;
+        import sailpoint.object.QueryOptions;
+        import sailpoint.object.ResourceObject;
+        import sailpoint.object.TaskResult;
+        import sailpoint.object.Rule;
+        import sailpoint.connector.JDBCConnector;
+        import sailpoint.api.Aggregator;
+        import sailpoint.connector.Connector;
+
+        import org.apache.log4j.Logger;
+        import org.apache.log4j.Level;
+
+
+
+        String errorMessage1;
+
+        // We need some values defined to know which account we want to aggregate.
+
+
+        int loc = nativeIdentityAptiv.indexOf("OU=");
+        String NewCN = nativeIdentityAptiv.substring(0, loc);
+        String accountName  = NewCN + deletedOuContainerAptiv;
+
+		String adApplicationNameAptiv = "Aptiv-Active Directory";
+        // We have already validated all of the arguments.  No just load the objects.
+        Application appObject = context.getObjectByName(Application.class, adApplicationNameAptiv);
+        String appConnName = appObject.getConnector();
+
+        Connector appConnector = sailpoint.connector.ConnectorFactory.getConnector(appObject, null);
+
+        if (null == appConnector) {
+        errorMessage1 = "Failed to construct an instance of connector [" + appConnName + "]";
+        log.error("Error message in Single Account Aggregation" + errorMessage1);  
+        }
+
+        ResourceObject rObj = null;
+        try {
+        rObj = (ResourceObject) appConnector.getObject("account", accountName, null);
+        } 
+        catch (sailpoint.connector.ObjectNotFoundException onfe) {
+        errorMessage1 = "Connector could not find account: [" + accountName + "]";
+        errorMessage1 += " in application  [" + applicationName + "]";
+        log.error("error : "+errorMessage1);
+        }
+
+        if (null == rObj) {
+        errorMessage1 = "ERROR: Could not get ResourceObject for account: " + accountName;
+        log.error("errorMessage"+errorMessage1);
+        }
+
+        // Create an arguments map for the aggregation task. 
+        // To change this (if you need to), the map contains aggregation options and is the same as the 
+        // arguments to the acocunt aggregation tasks.  Some suggestied defaults are:
+        Attributes argMap = new Attributes();
+        argMap.put("promoteAttributes",       "true");
+        argMap.put("correlateEntitlements",   "true");
+        argMap.put("noOptimizeReaggregation", "true");  
+        // Consturct an aggregator instance.
+        Aggregator agg = new Aggregator(context, argMap);
+        if (null == agg) {
+        errorMessage1 = "Null Aggregator returned from constructor.  Unable to Aggregate!";
+        System.out.println("errorMessage during aggregation due to :"+errorMessage1);
+        }
+
+        TaskResult taskResult = agg.aggregate(appObject, rObj);
+        log.debug("aggregation complete ");
+
+        if (null == taskResult) {
+        errorMessage1 = "ERROR: Null taskResult returned from aggregate() call.";
+        System.out.println("Error in task result due to "+errorMessage1);
+        }
+      </Source>
+    </Script>
+    <Transition to="Refresh Identity"/>
+  </Step>
+  <Step action="call:sendEmail" icon="Email" name="Send Email" posX="816" posY="10">
+    <Arg name="template" value="Aptiv-EmailTemplate-Terminate"/>
+    <Arg name="loginID" value="ref:loginID"/>
+    <Arg name="firstname" value="ref:firstname"/>
+    <Arg name="lastname" value="ref:lastname"/>
+    <Arg name="to" value="ref:managerMail"/>
+    <Arg name="identity">
+      <Script>
+        <Source>
+          import sailpoint.object.*;
+
+          Identity identity = context.getObjectByName(Identity.class,identityName);
+
+          return identity;
+        </Source>
+      </Script>
+    </Arg>
+  </Step>
+  <Step catches="complete" icon="Catches" name="Finalize" posX="1014" posY="10">
+    <Arg name="trace" value="ref:trace"/>
+    <Arg name="batchRequestItemId" value="ref:batchRequestItemId"/>
+    <Arg name="autoVerifyIdentityRequest"/>
+    <Arg name="approvalSet" value="ref:approvalSet"/>
+    <Arg name="ticketManagementApplication" value="ref:ticketManagementApplication"/>
+    <Arg name="project" value="ref:project"/>
+    <Arg name="identityRequestId" value="ref:identityRequestId"/>
+    <Arg name="priority" value="ref:workItemPriority"/>
+    <Arg name="ticketDataGenerationRule"/>
+    <Description>
+      Call the standard subprocess that can audit/finalize the request.
+    </Description>
+    <WorkflowRef>
+      <Reference class="sailpoint.object.Workflow" id="8a40a8766317522b016325704c2e012f" name="Identity Request Finalize"/>
+    </WorkflowRef>
+    <Transition to="end"/>
+  </Step>
+  <Step catches="Stop" name="end" wait="-1">
+    <Script>
+      <Source>
+        import com.delphi.prov.LogProvisioning;
+        import sailpoint.object.AuditEvent;
+        import sailpoint.object.ProvisioningProject;
+        import org.apache.commons.logging.Log;
+        import org.apache.commons.logging.LogFactory;
+
+        Log log = LogFactory.getLog(logName);
+        ProvisioningProject[] projects = {project};
+        log.debug("before calling logstop method =====>");
+        LogProvisioning.logStop(logName,wfcontext,context,projects,AuditEvent.ActionIdentityTriggerEvent);
+        log.debug("after calling logstop method =====>");
+
+      </Source>
+    </Script>
+    <Transition to="Send Email">
+      <Script>
+        <Source>
+          import sailpoint.object.TaskResult;
+          import java.util.List;
+
+          TaskResult taskResult = context.getObjectByName(TaskResult.class, wfcontext.getTaskResult().getName());
+
+          List errMsgList = getErrMsgList(taskResult);
+          System.out.println("inside send email");
+
+
+          if(errMsgList.size()== 0 || errMsgList.isEmpty()){
+          return true;
+          }
+          else{
+          return false;
+          }
+
+        </Source>
+      </Script>
+    </Transition>
+    <Transition to="Delphi Error Mail"/>
+  </Step>
+  <Step catches="complete" name="Delphi Error Mail" wait="-1">
+    <Script>
+      <Source>
+        import java.util.ArrayList;
+        import java.util.HashMap;
+        import java.util.List;
+        import java.util.Map;
+
+        import sailpoint.object.EmailOptions;
+        import sailpoint.object.EmailTemplate;
+        import sailpoint.object.TaskResult;
+        import sailpoint.object.Workflow;
+        import sailpoint.object.WorkflowSummary;
+
+        import sailpoint.tools.Message;
+        import sailpoint.workflow.WorkflowContext;
+        import sailpoint.tools.Message.Type;
+
+        import org.apache.commons.logging.Log;
+        import org.apache.commons.logging.LogFactory;
+
+
+        Log log = LogFactory.getLog(logName);    
+
+        Map attrMap = new HashMap();
+        List  errMsgList = new ArrayList();
+
+        System.out.println("inside send delphi error email");
+        if(null != identityName) {
+
+        Identity identityObj = context.getObjectByName(Identity.class,identityName);
+        attrMap.put("identityObj",identityObj);
+        }
+
+        TaskResult taskResult = context.getObjectByName(TaskResult.class, wfcontext.getTaskResult().getName());
+        log.debug("taskResult in delphi error mail :::::::::::::::::"+taskResult);
+        if(taskResult != null){
+        WorkflowSummary wfSummary = (WorkflowSummary) taskResult.getAttributes().getMap().get("workflowSummary");
+        String stepName = wfSummary.getStep();
+        attrMap.put("stepName",stepName);
+        List messages = taskResult.getMessages();
+        log.debug("messages are :::::::::::::::::" + messages);
+        if(messages !=null &amp;&amp; messages.size() >0){
+        for (Message message : messages) {
+        log.debug("message :::::::::::::::::"+message);
+        Type type = message.getType();
+        if(type.toString().equalsIgnoreCase("Error")){
+        errMsgList.add(message.getKey());
+        }
+        }
+        }
+        attrMap.put("errorMsgs",errMsgList);
+        log.debug("Error Size:::::::::::::::::"+errMsgList.size() );
+        }
+
+        if(errMsgList.size() >0){ 
+        attrMap.put("emailSubject","OffBoarding");
+        notifyErrorMail(workflow.getName(),attrMap);
+        }
+
+      </Source>
+    </Script>
+  </Step>
+  <Step icon="Stop" name="completed"/>
+</Workflow>
